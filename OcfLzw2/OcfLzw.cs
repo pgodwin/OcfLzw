@@ -110,6 +110,11 @@ namespace OcfLzw
 
             while ((nextCommand = (int)input.Read()) != EOD)
             {
+                if (nextCommand < 0)
+                {
+                    break;
+                }
+
                 // Do our reset
                 if (nextCommand == CLEAR_TABLE)
                 {
