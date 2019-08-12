@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -96,47 +96,30 @@ namespace OcfLzw
         public static void Decode(Stream compressedInput, Stream output)
         {
             NBitStream input = new NBitStream(compressedInput);
-            //int bitsInChunk = MIN_CHUNK_SIZE; // Min size
+            
             //byte firstByte = 0;
-            int nextCommand = 0;
+            long nextCommand = 0;
 
-            int lastCommand = CLEAR_TABLE;
+            long lastCommand = -1; // CLEAR_TABLE;
 
+            int earlyChange = 1;
 
             LzwTable table = new LzwTable(TABLE_SIZE);
             
             // The input needs the bits in chunk set properly to read the data
             input.BitsInChunk = MIN_CHUNK_SIZE;
 
-            while ((nextCommand = (int)input.Read()) != EOD)
+           
+            while ((nextCommand = input.Read()) != EOD)
             {
                 if (nextCommand < 0)
-                {
-                    break;
-                }
-
+                    break; // EOF?
                 // Do our reset
                 if (nextCommand == CLEAR_TABLE)
                 {
                     input.BitsInChunk = MIN_CHUNK_SIZE;
-                    nextCommand = (int)input.Read();
-                    
-                    if (nextCommand == EOD)
-                    {
-                        break;
-                    }
-                    
-                    if (table[nextCommand] == null)
-                    {
-                        throw new Exception(String.Format("Corrupted LZW: code {0} (table size: {1})", nextCommand, table.Length));
-                    }
-
-                    // Write out anything that's left in our table to the output stream
-                    table[nextCommand].writeTo(output);
-                    // Do I need to flush out the table...i think yes as we're using list.add() rather than array references?
-                    // We could save some cycles not rebuilding the first 256 ASCII codes
-                    // But I don't see the point.
-                    table = new LzwTable(TABLE_SIZE); 
+                    table = new LzwTable(TABLE_SIZE);
+                    lastCommand = -1;
                 }
                 else
                 {
@@ -147,30 +130,40 @@ namespace OcfLzw
 
                     // Check if the command is already in the table
                     // We could use a dictionary here, but I don't think we need the extra overhead of a hash
-                    if (nextCommand < table.Length)
+                    if (nextCommand < table.Count)
                     {
-                        table[nextCommand].writeTo(output);
+                        table[(int)nextCommand].writeTo(output);
 
-                        table.Add(table[lastCommand].concatenate(table[nextCommand].firstChar));
+                        if (lastCommand != -1)
+                        {
+                            table.Add(table[(int)lastCommand].concatenate(table[(int)nextCommand].firstChar));
+                        }
                     }
                     else
                     {
-                        LZWString outString = table[lastCommand].concatenate(table[lastCommand].firstChar);
+                        LZWString outString = table[(int)lastCommand].concatenate(table[(int)lastCommand].firstChar);
 
                         outString.writeTo(output);
                         table.Add(outString);
                     }
 
+                    
+
                     // The input needs the bits in chunk set properly to read the data
-                    if (table.GetNextCode() >= 2047)
+                    if (table.GetNextCode() >= 4096 - earlyChange)
+                    {
+                        input.BitsInChunk = 13;
+                    }
+                    else
+                    if (table.GetNextCode() >= 2048 - earlyChange)
                     {
                         input.BitsInChunk = 12;
                     }
-                    else if (table.GetNextCode() >= 1023)
+                    else if (table.GetNextCode() >= 1024 - earlyChange)
                     {
                         input.BitsInChunk = 11;
                     }
-                    else if (table.GetNextCode() >= 511)
+                    else if (table.GetNextCode() >= 512 - earlyChange)
                     {
                         input.BitsInChunk = 10;
                     }
@@ -181,8 +174,9 @@ namespace OcfLzw
 
                     lastCommand = nextCommand;
                 }
-                
-            }
+
+            } // while end
+                       
 
             output.Flush();
         }
